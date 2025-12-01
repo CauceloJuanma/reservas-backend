@@ -10,8 +10,9 @@ use App\Http\Controllers\ProductoController;
 Route::get('/', fn () => response()->json(['message' => 'Welcome to ReservaApp']));
 Route::get('/companies', [EmpresaController::class, 'index']);
 Route::get('/products/{id}', [ProductoController::class, 'productos_empresa']);
+Route::get('/products/{id}/reserve', [ProductoController::class, 'reservar_producto']);
 
-// Auth (SIN 'web')
+// Auth 
 Route::post('/register', [RegisteredUserController::class, 'store']);
 Route::post('/login', [AuthenticatedSessionController::class, 'store']);
 
