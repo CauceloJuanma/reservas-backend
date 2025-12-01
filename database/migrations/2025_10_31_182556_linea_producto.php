@@ -13,9 +13,8 @@ return new class extends Migration
     {
         Schema::create('lineaproducto', function (Blueprint $table) {
             $table->id();
-            $table->string('nombre');
             $table->integer('cantidad');
-            $table->double('precio');
+            $table->double('precio_unitario');
             $table->timestamps();
         });
     }
