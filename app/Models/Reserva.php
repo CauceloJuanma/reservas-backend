@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\LineaProducto;
 use App\Models\Usuario;
+use App\Models\Empresa;
+use App\Models\EstadoReserva;
 
 class Reserva extends Model
 {
@@ -35,7 +37,16 @@ class Reserva extends Model
 
     public function estado()
     {
-        return $this->belongsTo(Estado::class, 'estado_id');
+        return $this->belongsTo(EstadoReserva::class, 'estado_id');
+    }
+
+    public function getPrimerProducto()
+    {
+        return $this->lineas()
+            ->with('producto')
+            ->first()
+            ?->producto
+            ?->nombre ?? 'N/A';
     }
 }
 

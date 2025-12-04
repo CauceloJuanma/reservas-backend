@@ -21,6 +21,7 @@ class ReservaController extends Controller
             'items' => 'required|array|min:1',
             'items.*.producto_id' => 'required|integer|exists:producto,id',
             'items.*.cantidad' => 'required|integer|min:1|max:1000',
+            'items.*.hora_reserva' => 'nullable|date_format:H:i',
         ]);
 
         try {
@@ -38,6 +39,23 @@ class ReservaController extends Controller
                         "Stock insuficiente para '{$product->nombre}'. " .
                         "Disponible: {$product->stock}, Solicitado: {$item['cantidad']}"
                     );
+                }
+
+                // ✅ Validar horario si el producto tiene restricción
+                if ($product->tieneRestriccionHoraria()) {
+                    if (empty($item['hora_reserva'])) {
+                        throw new \Exception(
+                            "El producto '{$product->nombre}' requiere una hora de reserva. " .
+                            "Horario disponible: {$product->hora_inicio->format('H:i')} - {$product->hora_fin->format('H:i')}"
+                        );
+                    }
+
+                    if (!$product->esHoraValida($item['hora_reserva'])) {
+                        throw new \Exception(
+                            "Hora inválida para '{$product->nombre}'. " .
+                            "Debe estar entre {$product->hora_inicio->format('H:i')} y {$product->hora_fin->format('H:i')}"
+                        );
+                    }
                 }
             }
 
@@ -64,6 +82,7 @@ class ReservaController extends Controller
                         'cantidad' => $item['cantidad'],
                         'precio_unitario' => $product->precio,
                         'subtotal' => $product->precio * $item['cantidad'],
+                        'hora_reserva' => $item['hora_reserva'] ?? null,
                     ]
                 );
 
@@ -84,7 +103,7 @@ class ReservaController extends Controller
                 'message' => 'Reserva creada/actualizada correctamente',
                 'reservation_id' => $reservation->id,
                 'items_count' => $itemsCreated,
-                'total' => $this->calculateTotal($reservation),
+                'total' => $reservation->lineas->sum('subtotal'),
                 'reservation' => $reservation->load('lineas.producto'),
             ], 201);
 
@@ -112,18 +131,18 @@ class ReservaController extends Controller
     }
 
     /**
-     * 🔄 Actualizar cantidad de item en reserva
+     * 🔄 Actualizar cantidad e hora de item en reserva
      */
     public function updateItem(Request $request, $reservaId, $itemId)
     {
         $validated = $request->validate([
             'cantidad' => 'required|integer|min:1|max:1000',
+            'hora_reserva' => 'nullable|date_format:H:i',
         ]);
 
         try {
             $userId = auth()->id();
 
-            // ✅ Verificar que la reserva existe y pertenece al usuario
             $reservation = Reserva::findOrFail($reservaId);
             if ($reservation->usuario_id !== $userId) {
                 return response()->json([
@@ -132,7 +151,6 @@ class ReservaController extends Controller
                 ], 403);
             }
 
-            // ✅ Verificar que el item existe y pertenece a la reserva
             $item = LineaProducto::findOrFail($itemId);
             if ($item->reserva_id !== $reservation->id) {
                 return response()->json([
@@ -149,10 +167,22 @@ class ReservaController extends Controller
                 );
             }
 
-            // ✅ Actualizar item
+            // ✅ Validar horario si es necesario
+            if ($item->producto->tieneRestriccionHoraria() && !empty($validated['hora_reserva'])) {
+                if (!$item->producto->esHoraValida($validated['hora_reserva'])) {
+                    throw new \Exception(
+                        "Hora inválida. Debe estar entre " .
+                        "{$item->producto->hora_inicio->format('H:i')} y " .
+                        "{$item->producto->hora_fin->format('H:i')}"
+                    );
+                }
+            }
+
+            // ✅ Actualizar
             $item->update([
                 'cantidad' => $validated['cantidad'],
                 'subtotal' => $item->precio_unitario * $validated['cantidad'],
+                'hora_reserva' => $validated['hora_reserva'] ?? $item->hora_reserva,
             ]);
 
             Log::info("Item actualizado", [
@@ -165,7 +195,7 @@ class ReservaController extends Controller
                 'success' => true,
                 'message' => 'Item actualizado correctamente',
                 'item' => $item,
-                'total' => $this->calculateTotal($reservation),
+                'total' => $reservation->lineas->sum('subtotal'),
             ], 200);
 
         } catch (\Exception $e) {
@@ -190,7 +220,6 @@ class ReservaController extends Controller
         try {
             $userId = auth()->id();
 
-            // ✅ Verificar pertenencia
             $reservation = Reserva::findOrFail($reservaId);
             if ($reservation->usuario_id !== $userId) {
                 return response()->json([
@@ -218,7 +247,7 @@ class ReservaController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Item eliminado correctamente',
-                'total' => $this->calculateTotal($reservation),
+                'total' => $reservation->lineas->sum('subtotal'),
                 'items_count' => $reservation->lineas()->count() - 1,
             ], 200);
 
@@ -243,11 +272,9 @@ class ReservaController extends Controller
         try {
             $userId = auth()->id();
 
-            // ✅ Cargar con relaciones correctas
             $reservation = Reserva::with('lineas.producto', 'empresa', 'estado')
                 ->findOrFail($id);
 
-            // ✅ Verificar que pertenece al usuario
             if ($reservation->usuario_id !== $userId) {
                 return response()->json([
                     'success' => false,
@@ -258,7 +285,7 @@ class ReservaController extends Controller
             return response()->json([
                 'success' => true,
                 'reservation' => $reservation,
-                'total' => $this->calculateTotal($reservation),
+                'total' => $reservation->lineas->sum('subtotal'),
                 'items_count' => $reservation->lineas->count(),
             ], 200);
 
@@ -278,6 +305,7 @@ class ReservaController extends Controller
 
     /**
      * 📋 Listar todas las reservas del usuario autenticado
+     * ✅ PROBLEMA ARREGLADO: Sin map(), calculamos total directamente
      */
     public function index()
     {
@@ -285,41 +313,50 @@ class ReservaController extends Controller
             $userId = auth()->id();
 
             $reservas = Reserva::where('usuario_id', $userId)
-                ->with('lineas', 'empresa', 'estado')
+                ->with([
+                    'lineas.producto',
+                    'empresa',
+                    'estado'
+                ])
                 ->orderBy('created_at', 'desc')
-                ->get()
-                ->map(function ($reserva) {
-                    return [
-                        'id' => $reserva->id,
-                        'empresa' => $reserva->empresa->nombre ?? 'N/A',
-                        'estado' => $reserva->estado->nombre ?? 'N/A',
-                        'items_count' => $reserva->lineas->count(),
-                        'total' => $this->calculateTotal($reserva),
-                        'fecha' => $reserva->created_at->format('d/m/Y H:i'),
-                        'reserva' => $reserva,
-                    ];
-                });
+                ->get();
+
+            $reservasFormateadas = [];
+            foreach ($reservas as $reserva) {
+
+                $primerProducto = $reserva->lineas->first()?->producto?->nombre ?? 'N/A';
+
+                $reservasFormateadas[] = [
+                    'id' => $reserva->id,
+                    'empresa' => $reserva->empresa?->nombre ?? 'N/A',
+                    'producto' => $primerProducto,
+                    'estado' => $reserva->estado?->nombre ?? 'N/A',
+                    'estado_id' => $reserva->estado_id,
+                    'items_count' => $reserva->lineas->count(),
+                    'total' => $reserva->lineas->sum('subtotal'),
+                    'fecha' => $reserva->created_at->format('d/m/Y H:i'),
+                    'reserva' => $reserva,
+                ];
+            }
 
             return response()->json([
                 'success' => true,
-                'reservas' => $reservas,
-                'count' => $reservas->count(),
+                'reservas' => $reservasFormateadas,
+                'count' => count($reservasFormateadas),
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error("Error al listar reservas", [
+                'error' => $e->getMessage(),
+                'usuario_id' => auth()->id(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()
-            ], 422);
+            ], 500);
         }
-    }
-
-    /**
-     * 🧮 Calcular total de una reserva
-     */
-    private function calculateTotal(Reserva $reservation)
-    {
-        return $reservation->lineas->sum('subtotal');
     }
 
     /**
@@ -333,7 +370,6 @@ class ReservaController extends Controller
             $userId = auth()->id();
             $reservation = Reserva::findOrFail($id);
 
-            // Verificar pertenencia
             if ($reservation->usuario_id !== $userId) {
                 return response()->json([
                     'success' => false,
@@ -341,7 +377,6 @@ class ReservaController extends Controller
                 ], 403);
             }
 
-            // Verificar que está en estado pendiente
             if ($reservation->estado_id !== 1) {
                 return response()->json([
                     'success' => false,
@@ -364,7 +399,7 @@ class ReservaController extends Controller
                 $linea->producto->decrement('stock', $linea->cantidad);
             }
 
-            // ✅ Cambiar estado a confirmada (asume que estado_id 2 es confirmada)
+            // ✅ Cambiar estado a confirmada
             $reservation->update(['estado_id' => 2]);
 
             DB::commit();
@@ -406,7 +441,6 @@ class ReservaController extends Controller
             $userId = auth()->id();
             $reservation = Reserva::findOrFail($id);
 
-            // Verificar pertenencia
             if ($reservation->usuario_id !== $userId) {
                 return response()->json([
                     'success' => false,
@@ -414,8 +448,7 @@ class ReservaController extends Controller
                 ], 403);
             }
 
-            // Verificar que no esté ya cancelada
-            if ($reservation->estado_id === 3) { // 3 = cancelada
+            if ($reservation->estado_id === 3) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Esta reserva ya está cancelada'
@@ -423,7 +456,7 @@ class ReservaController extends Controller
             }
 
             // ✅ Si fue confirmada, restaurar stock
-            if ($reservation->estado_id === 2) { // 2 = confirmada
+            if ($reservation->estado_id === 2) {
                 foreach ($reservation->lineas as $linea) {
                     $linea->producto->increment('stock', $linea->cantidad);
                 }
@@ -451,6 +484,46 @@ class ReservaController extends Controller
             Log::error("Error al cancelar reserva", [
                 'error' => $e->getMessage(),
                 'reserva_id' => $id,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 422);
+        }
+    }
+
+    /**
+     * 📋 Obtener slots disponibles para un producto
+     */
+    public function getProductSlots($productoId)
+    {
+        try {
+            $product = Producto::findOrFail($productoId);
+
+            if (!$product->tieneRestriccionHoraria()) {
+                return response()->json([
+                    'success' => true,
+                    'hasTimeRestriction' => false,
+                    'slots' => [],
+                    'message' => 'Este producto no tiene restricción horaria',
+                ]);
+            }
+
+            $slots = $product->generarSlots(30);
+
+            return response()->json([
+                'success' => true,
+                'hasTimeRestriction' => true,
+                'slots' => $slots,
+                'hora_inicio' => $product->hora_inicio->format('H:i'),
+                'hora_fin' => $product->hora_fin->format('H:i'),
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error("Error al obtener slots", [
+                'error' => $e->getMessage(),
+                'producto_id' => $productoId,
             ]);
 
             return response()->json([
