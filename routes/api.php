@@ -31,6 +31,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Crear reserva
     Route::post('/reservations', [ReservaController::class, 'store']);
 
+    Route::get('/products/{productoId}/slots', [ReservaController::class, 'getProductSlots']);
+
     // Listar reservas del usuario
     Route::get('/reservations', [ReservaController::class, 'index']);
 

@@ -21,7 +21,12 @@ class ReservaController extends Controller
             'items' => 'required|array|min:1',
             'items.*.producto_id' => 'required|integer|exists:producto,id',
             'items.*.cantidad' => 'required|integer|min:1|max:1000',
+            'items.*.fecha_reserva' => 'required|date|after_or_equal:today',
             'items.*.hora_reserva' => 'nullable|date_format:H:i',
+        ]);
+
+        Log::info("DEBUG - Items validados", [
+            'items' => $validated['items'],
         ]);
 
         try {
@@ -46,25 +51,41 @@ class ReservaController extends Controller
                     if (empty($item['hora_reserva'])) {
                         throw new \Exception(
                             "El producto '{$product->nombre}' requiere una hora de reserva. " .
-                            "Horario disponible: {$product->hora_inicio->format('H:i')} - {$product->hora_fin->format('H:i')}"
+                            "Horario disponible: {$product->getHoraIniFormato()} - {$product->getHoraFinFormato()}"
                         );
                     }
 
                     if (!$product->esHoraValida($item['hora_reserva'])) {
                         throw new \Exception(
                             "Hora inválida para '{$product->nombre}'. " .
-                            "Debe estar entre {$product->hora_inicio->format('H:i')} y {$product->hora_fin->format('H:i')}"
+                            "Debe estar entre {$product->getHoraIniFormato()} y {$product->getHoraFinFormato()}"
                         );
                     }
                 }
             }
 
             // ✅ PASO 2: Obtener o crear reserva pendiente
-            $reservation = Reserva::firstOrCreate(
+            $totalImporte = 0;
+            $fechaHora = null;
+
+            foreach ($validated['items'] as $item) {
+                $product = Producto::findOrFail($item['producto_id']);
+                $totalImporte += $product->precio * $item['cantidad'];
+
+                if (!empty($item['hora_reserva']) && $fechaHora === null) {
+                    $fechaHora = $item['fecha_reserva'] . ' ' . $item['hora_reserva'];
+                }
+            }
+
+            $reservation = Reserva::updateOrCreate(
                 [
                     'usuario_id' => $userId,
                     'empresa_id' => $empresaId,
                     'estado_id' => 1, // Pendiente
+                ],
+                [
+                    'importe' => $totalImporte,
+                    'fecha_hora' => $fechaHora,
                 ]
             );
 
@@ -82,7 +103,6 @@ class ReservaController extends Controller
                         'cantidad' => $item['cantidad'],
                         'precio_unitario' => $product->precio,
                         'subtotal' => $product->precio * $item['cantidad'],
-                        'hora_reserva' => $item['hora_reserva'] ?? null,
                     ]
                 );
 
@@ -90,13 +110,6 @@ class ReservaController extends Controller
             }
 
             DB::commit();
-
-            Log::info("Reserva creada", [
-                'reserva_id' => $reservation->id,
-                'usuario_id' => $userId,
-                'empresa_id' => $empresaId,
-                'items' => $itemsCreated,
-            ]);
 
             return response()->json([
                 'success' => true,
@@ -172,18 +185,23 @@ class ReservaController extends Controller
                 if (!$item->producto->esHoraValida($validated['hora_reserva'])) {
                     throw new \Exception(
                         "Hora inválida. Debe estar entre " .
-                        "{$item->producto->hora_inicio->format('H:i')} y " .
-                        "{$item->producto->hora_fin->format('H:i')}"
+                        "{$item->producto->getHoraIniFormato()} y " .
+                        "{$item->producto->getHoraFinFormato()}"
                     );
                 }
             }
 
-            // ✅ Actualizar
+            // ✅ Actualizar item y reserva
             $item->update([
                 'cantidad' => $validated['cantidad'],
                 'subtotal' => $item->precio_unitario * $validated['cantidad'],
-                'hora_reserva' => $validated['hora_reserva'] ?? $item->hora_reserva,
             ]);
+
+            // ✅ Actualizar fecha_hora en la reserva si se proporciona
+            if (!empty($validated['hora_reserva'])) {
+                $fechaHora = now()->format('Y-m-d') . ' ' . $validated['hora_reserva'];
+                $reservation->update(['fecha_hora' => $fechaHora]);
+            }
 
             Log::info("Item actualizado", [
                 'item_id' => $itemId,
@@ -305,7 +323,6 @@ class ReservaController extends Controller
 
     /**
      * 📋 Listar todas las reservas del usuario autenticado
-     * ✅ PROBLEMA ARREGLADO: Sin map(), calculamos total directamente
      */
     public function index()
     {
@@ -323,7 +340,6 @@ class ReservaController extends Controller
 
             $reservasFormateadas = [];
             foreach ($reservas as $reserva) {
-
                 $primerProducto = $reserva->lineas->first()?->producto?->nombre ?? 'N/A';
 
                 $reservasFormateadas[] = [
@@ -439,7 +455,7 @@ class ReservaController extends Controller
             DB::beginTransaction();
 
             $userId = auth()->id();
-            $reservation = Reserva::findOrFail($id);
+            $reservation = Reserva::with('lineas.producto')->findOrFail($id);
 
             if ($reservation->usuario_id !== $userId) {
                 return response()->json([
@@ -453,6 +469,17 @@ class ReservaController extends Controller
                     'success' => false,
                     'message' => 'Esta reserva ya está cancelada'
                 ], 422);
+            }
+
+            // ✅ NUEVA VALIDACIÓN: No cancelar si ya pasó la fecha/hora
+            if ($reservation->fecha_hora) {
+                $fechaReserva = \Carbon\Carbon::parse($reservation->fecha_hora);
+                if ($fechaReserva->isPast()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No puedes cancelar reservas que ya han pasado su fecha/hora'
+                    ], 422);
+                }
             }
 
             // ✅ Si fue confirmada, restaurar stock
@@ -516,8 +543,8 @@ class ReservaController extends Controller
                 'success' => true,
                 'hasTimeRestriction' => true,
                 'slots' => $slots,
-                'hora_inicio' => $product->hora_inicio->format('H:i'),
-                'hora_fin' => $product->hora_fin->format('H:i'),
+                'hora_ini' => $product->getHoraIniFormato(),
+                'hora_fin' => $product->getHoraFinFormato(),
             ]);
 
         } catch (\Exception $e) {

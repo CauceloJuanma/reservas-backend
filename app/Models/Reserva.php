@@ -15,9 +15,10 @@ class Reserva extends Model
     protected $fillable = [
         'usuario_id',
         'empresa_id',
-        'fecha_reserva',
+        'fecha_hora',
         'cantidad',
         'estado_id',
+        'importe',
     ];
 
     public function lineas()
