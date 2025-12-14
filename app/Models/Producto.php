@@ -31,13 +31,13 @@ class Producto extends Model
         return $this->belongsTo(TipoProducto::class, 'tipo_id');
     }
 
-    // ✅ Método helper para obtener hora_ini formateada
+    // Método helper para obtener hora_ini formateada
     public function getHoraIniFormato()
     {
         return $this->hora_ini ? substr($this->hora_ini, 0, 5) : null;
     }
 
-    // ✅ Método helper para obtener hora_fin formateada
+    // Método helper para obtener hora_fin formateada
     public function getHoraFinFormato()
     {
         return $this->hora_fin ? substr($this->hora_fin, 0, 5) : null;

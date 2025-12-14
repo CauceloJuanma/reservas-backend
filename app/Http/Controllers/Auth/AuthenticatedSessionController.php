@@ -24,22 +24,22 @@ class AuthenticatedSessionController extends Controller
             return response()->json(['message' => 'Credenciales incorrectas'], 401);
         }
 
-        // ✅ Login con guard web
+        // Login con guard web
         Auth::guard('web')->login($usuario);
         
-        // ✅ Regenerar sesión
+        // Regenerar sesión
         $request->session()->regenerate();
         
-        // ✅ Guardar sesión inmediatamente
+        // Guardar sesión inmediatamente
         $request->session()->save();
         
-        // ✅ Actualizar user_id en la tabla sessions manualmente
+        // Actualizar user_id en la tabla sessions manualmente
         $sessionId = $request->session()->getId();
         DB::table('sessions')
             ->where('id', $sessionId)
             ->update(['user_id' => $usuario->id]);
         
-        // ✅ Log para debug
+        // Log para debug
         \Log::info('Login exitoso', [
             'session_id' => $sessionId,
             'user_id' => $usuario->id,

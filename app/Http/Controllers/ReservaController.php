@@ -11,9 +11,7 @@ use Illuminate\Support\Facades\Log;
 
 class ReservaController extends Controller
 {
-    /**
-     * 📝 Crear nueva reserva o agregar items a existente
-     */
+    // Crear nueva reserva o agregar items a existente
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -35,7 +33,7 @@ class ReservaController extends Controller
             $userId = auth()->id();
             $empresaId = $validated['empresa_id'];
 
-            // ✅ PASO 1: Validar stock para TODOS los items primero
+            // Validar stock para TODOS los items primero
             foreach ($validated['items'] as $item) {
                 $product = Producto::findOrFail($item['producto_id']);
 
@@ -46,7 +44,7 @@ class ReservaController extends Controller
                     );
                 }
 
-                // ✅ Validar horario si el producto tiene restricción
+                // Validar horario si el producto tiene restricción
                 if ($product->tieneRestriccionHoraria()) {
                     if (empty($item['hora_reserva'])) {
                         throw new \Exception(
@@ -64,7 +62,7 @@ class ReservaController extends Controller
                 }
             }
 
-            // ✅ PASO 2: Obtener o crear reserva pendiente
+            // Obtener o crear reserva pendiente
             $totalImporte = 0;
             $fechaHora = null;
 
@@ -89,7 +87,7 @@ class ReservaController extends Controller
                 ]
             );
 
-            // ✅ PASO 3: Crear/actualizar líneas de producto
+            // Crear/actualizar líneas de producto
             $itemsCreated = 0;
             foreach ($validated['items'] as $item) {
                 $product = Producto::findOrFail($item['producto_id']);
@@ -143,9 +141,7 @@ class ReservaController extends Controller
         }
     }
 
-    /**
-     * 🔄 Actualizar cantidad e hora de item en reserva
-     */
+    //Actualizar cantidad e hora de item en reserva
     public function updateItem(Request $request, $reservaId, $itemId)
     {
         $validated = $request->validate([
@@ -172,7 +168,7 @@ class ReservaController extends Controller
                 ], 403);
             }
 
-            // ✅ Validar stock
+            // Validar stock
             if ($item->producto->stock < $validated['cantidad']) {
                 throw new \Exception(
                     "Stock insuficiente para '{$item->producto->nombre}'. " .
@@ -180,7 +176,7 @@ class ReservaController extends Controller
                 );
             }
 
-            // ✅ Validar horario si es necesario
+            // Validar horario si es necesario
             if ($item->producto->tieneRestriccionHoraria() && !empty($validated['hora_reserva'])) {
                 if (!$item->producto->esHoraValida($validated['hora_reserva'])) {
                     throw new \Exception(
@@ -191,13 +187,13 @@ class ReservaController extends Controller
                 }
             }
 
-            // ✅ Actualizar item y reserva
+            // Actualizar item y reserva
             $item->update([
                 'cantidad' => $validated['cantidad'],
                 'subtotal' => $item->precio_unitario * $validated['cantidad'],
             ]);
 
-            // ✅ Actualizar fecha_hora en la reserva si se proporciona
+            // Actualizar fecha_hora en la reserva si se proporciona
             if (!empty($validated['hora_reserva'])) {
                 $fechaHora = now()->format('Y-m-d') . ' ' . $validated['hora_reserva'];
                 $reservation->update(['fecha_hora' => $fechaHora]);
@@ -230,9 +226,7 @@ class ReservaController extends Controller
         }
     }
 
-    /**
-     * ❌ Eliminar item de reserva
-     */
+    // Eliminar item de reserva
     public function removeItem($reservaId, $itemId)
     {
         try {
@@ -254,7 +248,7 @@ class ReservaController extends Controller
                 ], 403);
             }
 
-            // ✅ Eliminar
+            // Eliminar
             $item->delete();
 
             Log::info("Item eliminado", [
@@ -282,9 +276,7 @@ class ReservaController extends Controller
         }
     }
 
-    /**
-     * 📊 Ver detalles de reserva
-     */
+    // Ver detalles de reserva
     public function show($id)
     {
         try {
@@ -321,9 +313,7 @@ class ReservaController extends Controller
         }
     }
 
-    /**
-     * 📋 Listar todas las reservas del usuario autenticado
-     */
+    // Listar todas las reservas del usuario autenticado
     public function index()
     {
         try {
@@ -375,9 +365,7 @@ class ReservaController extends Controller
         }
     }
 
-    /**
-     * ✅ Confirmar reserva (reduce stock y cambia estado)
-     */
+    // Confirmar reserva (reduce stock y cambia estado)
     public function confirm(Request $request, $id)
     {
         try {
@@ -400,7 +388,7 @@ class ReservaController extends Controller
                 ], 422);
             }
 
-            // ✅ Validar stock nuevamente
+            // Validar stock nuevamente
             foreach ($reservation->lineas as $linea) {
                 if ($linea->producto->stock < $linea->cantidad) {
                     throw new \Exception(
@@ -410,12 +398,12 @@ class ReservaController extends Controller
                 }
             }
 
-            // ✅ Reducir stock
+            // Reducir stock
             foreach ($reservation->lineas as $linea) {
                 $linea->producto->decrement('stock', $linea->cantidad);
             }
 
-            // ✅ Cambiar estado a confirmada
+            // Cambiar estado a confirmada
             $reservation->update(['estado_id' => 2]);
 
             DB::commit();
@@ -446,9 +434,7 @@ class ReservaController extends Controller
         }
     }
 
-    /**
-     * ❌ Cancelar reserva (restaura stock)
-     */
+    // Cancelar reserva (restaura stock)
     public function cancel(Request $request, $id)
     {
         try {
@@ -471,7 +457,7 @@ class ReservaController extends Controller
                 ], 422);
             }
 
-            // ✅ NUEVA VALIDACIÓN: No cancelar si ya pasó la fecha/hora
+            // No cancelar si ya pasó la fecha/hora
             if ($reservation->fecha_hora) {
                 $fechaReserva = \Carbon\Carbon::parse($reservation->fecha_hora);
                 if ($fechaReserva->isPast()) {
@@ -482,14 +468,14 @@ class ReservaController extends Controller
                 }
             }
 
-            // ✅ Si fue confirmada, restaurar stock
+            // Si fue confirmada, restaurar stock
             if ($reservation->estado_id === 2) {
                 foreach ($reservation->lineas as $linea) {
                     $linea->producto->increment('stock', $linea->cantidad);
                 }
             }
 
-            // ✅ Cambiar estado a cancelada
+            // Cambiar estado a cancelada
             $reservation->update(['estado_id' => 3]);
 
             DB::commit();
@@ -520,9 +506,7 @@ class ReservaController extends Controller
         }
     }
 
-    /**
-     * 📋 Obtener slots disponibles para un producto
-     */
+    // Obtener slots disponibles para un producto
     public function getProductSlots($productoId)
     {
         try {

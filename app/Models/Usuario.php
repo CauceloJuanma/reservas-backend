@@ -26,12 +26,12 @@ class Usuario extends Authenticatable
 
     public function getAuthPassword()
     {
-        return $this->pass; // Tu columna se llama 'pass', no 'password'
+        return $this->pass; 
     }
 
     public function getAuthIdentifierName()
     {
-        return 'id'; // Tu primary key
+        return 'id'; 
     }
 
     public function getAuthIdentifier()
