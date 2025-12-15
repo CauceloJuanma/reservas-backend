@@ -1,85 +1,107 @@
 ## Diagrama de Clases (Mermaid)
 
 ```mermaid
-erDiagram
-    Usuario {
-        string nombre
-        string apellidos
-        string correo
-        string pass
+classDiagram
+    class Usuario {
+        +string nombre
+        +string apellidos
+        +string correo
+        +string pass
     }
 
-    TipoUsuario {
-        string nombre
+    class TipoUsuario {
+        +string nombre
     }
 
-    Empresa {
-        string nombre
-        string descripcion
-        string direccion
-        string telefono
-        string email
+    class Empresa {
+        +string nombre
+        +string descripcion
+        +string direccion
+        +string telefono
+        +string email
     }
 
-    EstadoEmpresa {
-        string nombre
+    class EstadoEmpresa {
+        +string nombre
     }
 
-    CargoUsuarioEmpresa {
-        string nombre
+    class CargoUsuarioEmpresa {
+        +string nombre
     }
 
-    UsuarioEmpresa {
+    class UsuarioEmpresa {
+        %% idUsuario, idEmpresa, idCargo irían aquí como atributos si quieres
     }
 
-    Reserva {
-        double importe
-        datetime fecha_hora
+    class Reserva {
+        +double importe
+        +datetime fecha_hora
     }
 
-    EstadoReserva {
-        string nombre
+    class EstadoReserva {
+        +string nombre
     }
 
-    Producto {
-        string nombre
-        string descripcion
-        double precio
-        int stock
-        time hora_ini
-        time hora_fin
+    class Producto {
+        +string nombre
+        +string descripcion
+        +double precio
+        +int stock
+        +time hora_ini
+        +time hora_fin
     }
 
-    TipoProducto {
-        string nombre
+    class TipoProducto {
+        +string nombre
     }
 
-    EstadoProducto {
-        string nombre
+    class EstadoProducto {
+        +string nombre
     }
 
-    LineaProducto {
-        int cantidad
-        double precio_unitario
-        double subtotal
+    class LineaProducto {
+        +int cantidad
+        +double precio_unitario
+        +double subtotal
     }
 
-    %% Relaciones (cardinalidades típicas)
-    Usuario ||--o{ Reserva : realiza
-    Usuario ||--o{ UsuarioEmpresa : tiene
-    TipoUsuario ||--o{ Usuario : clasifica
+    %% Multiplicidades visibles
 
-    Empresa ||--o{ Reserva : recibe
-    Empresa ||--o{ UsuarioEmpresa : agrupa
-    Empresa ||--o{ Producto : ofrece
-    EstadoEmpresa ||--o{ Empresa : clasifica
+    %% TipoUsuario 1 -- * Usuario
+    TipoUsuario "1" -- "*" Usuario : clasifica
 
-    CargoUsuarioEmpresa ||--o{ UsuarioEmpresa : define
+    %% Usuario 1 -- * Reserva
+    Usuario "1" -- "*" Reserva : realiza
 
-    EstadoReserva ||--o{ Reserva : clasifica
+    %% Usuario 1 -- * UsuarioEmpresa
+    Usuario "1" -- "*" UsuarioEmpresa : tiene
 
-    TipoProducto ||--o{ Producto : clasifica
-    EstadoProducto ||--o{ Producto : clasifica
+    %% Empresa 1 -- * Reserva
+    Empresa "1" -- "*" Reserva : recibe
 
-    Reserva ||--o{ LineaProducto : contiene
-    Producto ||--o{ LineaProducto : aparece_en
+    %% Empresa 1 -- * UsuarioEmpresa
+    Empresa "1" -- "*" UsuarioEmpresa : agrupa
+
+    %% Cargo 1 -- * UsuarioEmpresa
+    CargoUsuarioEmpresa "1" -- "*" UsuarioEmpresa : define
+
+    %% EstadoEmpresa 1 -- * Empresa
+    EstadoEmpresa "1" -- "*" Empresa : clasifica
+
+    %% EstadoReserva 1 -- * Reserva
+    EstadoReserva "1" -- "*" Reserva : clasifica
+
+    %% Empresa 1 -- * Producto
+    Empresa "1" -- "*" Producto : ofrece
+
+    %% TipoProducto 1 -- * Producto
+    TipoProducto "1" -- "*" Producto : clasifica
+
+    %% EstadoProducto 1 -- * Producto
+    EstadoProducto "1" -- "*" Producto : clasifica
+
+    %% Reserva 1 -- * LineaProducto
+    Reserva "1" -- "*" LineaProducto : contiene
+
+    %% Producto 1 -- * LineaProducto
+    Producto "1" -- "*" LineaProducto : aparece_en
