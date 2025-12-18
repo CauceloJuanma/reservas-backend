@@ -45,11 +45,5 @@ Route::middleware('auth:sanctum')->group(function () {
     // Cancelar reserva
     Route::post('/reservations/{id}/cancel', [ReservaController::class, 'cancel']);
 
-    // Actualizar cantidad de item
-    Route::patch('/reservations/{reservaId}/items/{itemId}', 
-        [ReservaController::class, 'updateItem']);
-
-    // Eliminar item
-    Route::delete('/reservations/{reservaId}/items/{itemId}', 
-        [ReservaController::class, 'removeItem']);
+    
 });
